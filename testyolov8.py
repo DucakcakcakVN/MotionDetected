@@ -18,7 +18,7 @@ if "camera_permission" not in st.session_state:
 if not st.session_state.camera_permission:
     if st.button("🎥 Bật Camera"):
         st.session_state.camera_permission = True
-        st.experimental_rerun()
+        st.rerun()
 
 # 🚦 Nếu đã cấp quyền camera, tiến hành xử lý
 if st.session_state.camera_permission:
