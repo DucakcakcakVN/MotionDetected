@@ -1,51 +1,78 @@
 import cv2
 import streamlit as st
-import av
 import numpy as np
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
-# Giao diện Streamlit
-st.title("🎥 Ứng dụng Theo Dõi Chuyển Động (WebRTC)")
+# 🚀 Giao diện Streamlit
+st.title("🎥 Ứng dụng Theo Dõi Chuyển Động với OpenCV")
 st.sidebar.write("### Cài đặt")
 
-# Tham số có thể điều chỉnh
+# Điều chỉnh thông số
 min_contour_area = st.sidebar.slider("Diện tích viền tối thiểu", 50, 1000, 200)
 threshold_value = st.sidebar.slider("Độ nhạy phát hiện", 5, 50, 15)
-blur_size = (11, 11)  # Giữ nguyên bộ lọc làm mờ để giảm nhiễu
+blur_size = (11, 11)  # Kích thước bộ lọc làm mờ
 
-# Bộ xử lý video
-class MotionDetectionProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.prev_gray = None  # Lưu frame trước để so sánh
+# 🔄 Xin quyền truy cập camera trước khi chạy
+if "camera_permission" not in st.session_state:
+    st.session_state.camera_permission = False
 
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")  # Chuyển frame thành numpy array
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, blur_size, 0)
+if not st.session_state.camera_permission:
+    if st.button("🎥 Bật Camera"):
+        st.session_state.camera_permission = True
+        st.experimental_rerun()
 
-        if self.prev_gray is None:
-            self.prev_gray = gray
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
+# 🚦 Nếu đã cấp quyền camera, tiến hành xử lý
+if st.session_state.camera_permission:
+    cap = cv2.VideoCapture(0)
 
-        # Tính toán sự khác biệt giữa frame hiện tại và trước đó
-        delta_frame = cv2.absdiff(self.prev_gray, gray)
-        thresh = cv2.threshold(delta_frame, threshold_value, 255, cv2.THRESH_BINARY)[1]
-        thresh = cv2.dilate(thresh, None, iterations=2)
+    if not cap.isOpened():
+        st.error("Không thể truy cập camera. Hãy kiểm tra lại kết nối!")
+    else:
+        # Bộ nhớ đệm frame trước
+        prev_gray = None
 
-        # Tìm contours
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for contour in contours:
-            if cv2.contourArea(contour) < min_contour_area:
+        # Chạy vòng lặp chính
+        stframe = st.empty()  # Tạo vùng hiển thị video trong Streamlit
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                st.error("Không thể lấy frame từ camera!")
+                break
+
+            # Xử lý hình ảnh
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.GaussianBlur(gray, blur_size, 0)
+
+            if prev_gray is None:
+                prev_gray = gray
                 continue
-            (x, y, w, h) = cv2.boundingRect(contour)
-            cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-        self.prev_gray = gray  # Lưu frame hiện tại cho lần tiếp theo
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
+            # So sánh hai frame để phát hiện chuyển động
+            delta_frame = cv2.absdiff(prev_gray, gray)
+            thresh = cv2.threshold(delta_frame, threshold_value, 255, cv2.THRESH_BINARY)[1]
+            thresh = cv2.dilate(thresh, None, iterations=2)
 
-# Chạy WebRTC Stream
-webrtc_streamer(
-    key="motion-detect",
-    video_processor_factory=MotionDetectionProcessor,
-    media_stream_constraints={"video": True, "audio": False}  # Chỉ bật camera, không cần mic
-)
+            # Tìm contours
+            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            motion_detected = False
+            for contour in contours:
+                if cv2.contourArea(contour) < min_contour_area:
+                    continue
+                motion_detected = True
+                (x, y, w, h) = cv2.boundingRect(contour)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            # Ghi trạng thái chuyển động
+            status_text = "🚨 Phát hiện chuyển động!" if motion_detected else "✅ Không có chuyển động"
+            cv2.putText(frame, status_text, (10, 30), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+            # Cập nhật frame trước
+            prev_gray = gray
+
+            # Hiển thị hình ảnh trên Streamlit
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Đổi màu BGR -> RGB
+            stframe.image(frame, channels="RGB", use_column_width=True)
+
+        # Giải phóng camera sau khi thoát
+        cap.release()
+        cv2.destroyAllWindows()
