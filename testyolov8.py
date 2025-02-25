@@ -3,10 +3,10 @@ import streamlit as st
 import numpy as np
 import tempfile
 
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(1)
 st.title("Ứng dụng Theo Dõi Chuyển Động")
 frame_placeholder = st.empty()
-stop_button_pressed = st.empty()
+stop_button_pressed = st.button("Dừng lại")
 while cap.isOpened() and not stop_button_pressed:
     ret, frame = cap.read()
     if not ret:
